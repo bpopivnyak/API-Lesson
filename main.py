@@ -1,37 +1,56 @@
 import uvicorn
-from fastapi import FastAPI
-from pydantic import BaseModel, Field
-from typing import List
-
-
+from fastapi import FastAPI, Depends
+from sqlalchemy import Column, Integer, String, create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from starlette.requests import Request
+from starlette.responses import HTMLResponse
 from starlette.templating import Jinja2Templates
 
+DATABASE_URL = "sqlite:///./test1.db"
+
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False}, echo=True)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+templates = Jinja2Templates(directory="templates")
+
+class Book(Base):
+    __tablename__ = "books"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True)
+
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
-templates = Jinja2Templates(directory="templates")
-database: List[dict] = [
-    {"id":1, "book_name": "Куджо", "author": "Стівен Кінг", "rating": 4.9},
-    {"id":2, "book_name": "Гаррі Поттер і філософський камінь", "author": "Джоан Роулінг", "rating": 4.7},
-    {"id":3, "book_name": "451° по фаренгейту", "author": "Рей Бредбері", "rating": 4.6},
-]
 
-@app.get("/main_books")
-def read_root(request: Request):
-    data = {"message": "Hello, World!"}
-    return templates.TemplateResponse("index.html", {"request": request, "data": data, "database": database})
-next_id = 1
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+from pydantic import BaseModel
 
 class BookCreate(BaseModel):
-    book_name: str = Field(..., max_length=15, description="BookModel")
-    author: str = Field(..., max_length=15, description="Автор")
-    rating: str = Field(..., min_length=4, description="Рейтинг")
+    name: str
 
-class Book(BookCreate):
-    id : int
+@app.post("/books/")
+def create_user(book: BookCreate, db: Session = Depends(get_db)):
+    db_user = Book(name=book.name)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
 
-@app.post("/Books/", response_model=Book)
-async def create_user(book: BookCreate):
-    global next_id
+@app.get("/books/")
+def read_users(db: Session = Depends(get_db)):
+    return db.query(Book).all()
+
+@app.get("/books_html/")
+def read_users_html(request: Request, db: Session = Depends(get_db)):
+    users = db.query(Book).all()
+    return templates.TemplateResponse("users.html", {"request": request, "users": users,})
+
+uvicorn.run(app)
 
     

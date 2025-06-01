@@ -1,10 +1,14 @@
+import secrets
+
 import uvicorn
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException, security
 from sqlalchemy import Column, Integer, String, create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
+from starlette import status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from starlette.requests import Request
-from starlette.responses import HTMLResponse
 from starlette.templating import Jinja2Templates
+from pydantic import BaseModel
 
 DATABASE_URL = "sqlite:///./test1.db"
 
@@ -21,6 +25,25 @@ class Book(Base):
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+security = HTTPBasic()
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+def check_credentials(credentials: HTTPBasicCredentials = Depends(security)):
+    correct_username = secrets.compare_digest(credentials.username, "admin")
+    correct_password = secrets.compare_digest(credentials.password, "secret")
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+@app.delete("/secure-endpoint/")
+def secure_endpoint(username=Depends(check_credentials)):
+    return {"message": f"Hello, {username}! You are authorized."}
+
 
 def get_db():
     db = SessionLocal()
